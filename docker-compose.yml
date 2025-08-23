@@ -1,130 +1,142 @@
----
-services:
-  api: &api-environment
-    image: jhumanj/opnform-api:latest
-    container_name: opnform-api
-    volumes: &api-environment-volumes
-      - opnform_storage:/usr/share/nginx/html/storage:rw
-    environment: &api-env
-      APP_ENV: production
-      # Database settings
-      DB_HOST: db
-      REDIS_HOST: redis
-      DB_DATABASE: ${DB_DATABASE:-forge}
-      DB_USERNAME: ${DB_USERNAME:-forge}
-      DB_PASSWORD: ${DB_PASSWORD:-forge}
-      DB_CONNECTION: ${DB_CONNECTION:-pgsql}
-      # PHP Configuration
-      PHP_MEMORY_LIMIT: "1G"
-      PHP_MAX_EXECUTION_TIME: "600"
-      PHP_UPLOAD_MAX_FILESIZE: "64M"
-      PHP_POST_MAX_SIZE: "64M"
-    env_file:
-      - ./api/.env
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy # Depend on redis being healthy too
-    healthcheck:
-      test: ["CMD-SHELL", "php /usr/share/nginx/html/artisan about || exit 1"]
-      interval: 30s
-      timeout: 15s
-      retries: 3
-      start_period: 60s
-
-  api-worker:
-    <<: *api-environment
-    container_name: opnform-api-worker
-    command: ["php", "artisan", "queue:work"]
-    environment:
-      <<: *api-env
-      APP_ENV: production
-    healthcheck:
-      test:
-        ["CMD-SHELL", "pgrep -f 'php artisan queue:work' > /dev/null || exit 1"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-
-  api-scheduler:
-    <<: *api-environment
-    container_name: opnform-api-scheduler
-    command: ["php", "artisan", "schedule:work"]
-    environment:
-      <<: *api-env
-      APP_ENV: production
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "php /usr/share/nginx/html/artisan app:scheduler-status --mode=check --max-minutes=3 || exit 1",
-        ]
-      interval: 60s
-      timeout: 30s
-      retries: 3
-      start_period: 70s # Allow time for first scheduled run and cache write
-
-  ui:
-    image: jhumanj/opnform-client:latest
-    container_name: opnform-client
-    env_file:
-      - ./client/.env
-    healthcheck:
-      test:
-        ["CMD-SHELL", "wget --spider -q http://localhost:3000/login || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 45s
-
-  redis:
-    image: redis:7
-    container_name: opnform-redis
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
-      interval: 30s
-      timeout: 5s
-
-  db:
-    image: postgres:16
-    container_name: opnform-db
-    environment:
-      POSTGRES_DB: ${DB_DATABASE:-forge}
-      POSTGRES_USER: ${DB_USERNAME:-forge}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-forge}
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-forge}"]
-      interval: 30s
-      timeout: 5s
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-
-  ingress:
-    image: nginx:1
-    container_name: opnform-ingress
-    volumes:
-      - ./docker/nginx.conf:/etc/nginx/templates/default.conf.template
-    ports:
-      - 80:80
-    environment:
-      - NGINX_MAX_BODY_SIZE=64m
-    depends_on:
-      api:
-        condition: service_started
-      ui:
-        condition: service_started
-    healthcheck:
-      test: ["CMD-SHELL", "nginx -t && curl -f http://localhost/ || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+version: "3.9"
 
 volumes:
   postgres-data:
   opnform_storage:
   redis-data:
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "PING"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: jhumanj/opnform-api:latest
+    env_file:
+      - ./api/.env
+    environment:
+      DB_HOST: db
+      DB_CONNECTION: pgsql
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      PHP_MEMORY_LIMIT: "1024M"
+      PHP_MAX_EXECUTION_TIME: "600"
+      PHP_UPLOAD_MAX_FILESIZE: "64M"
+      PHP_POST_MAX_SIZE: "64M"
+    volumes:
+      - opnform_storage:/usr/share/nginx/html/storage:rw
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "php /usr/share/nginx/html/artisan about || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+
+  api-worker:
+    image: jhumanj/opnform-api:latest
+    command: ["php", "artisan", "queue:work"]
+    env_file:
+      - ./api/.env
+    environment:
+      DB_HOST: db
+      DB_CONNECTION: pgsql
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - opnform_storage:/usr/share/nginx/html/storage:rw
+    depends_on:
+      api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'php artisan queue:work' > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  api-scheduler:
+    image: jhumanj/opnform-api:latest
+    command: ["php", "artisan", "schedule:work"]
+    env_file:
+      - ./api/.env
+    environment:
+      DB_HOST: db
+      DB_CONNECTION: pgsql
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - opnform_storage:/usr/share/nginx/html/storage:rw
+    depends_on:
+      api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "php /usr/share/nginx/html/artisan app:scheduler-status --mode=check --max-minutes=3 || exit 1"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 70s
+
+  ui:
+    image: jhumanj/opnform-client:latest
+    env_file:
+      - ./client/.env
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3000/login || exit 1"]
+    depends_on:
+      api:
+        condition: service_started
+
+  ingress:
+    image: nginx:1.25-alpine
+    environment:
+      NGINX_MAX_BODY_SIZE: 64m
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/templates/default.conf.template:ro
+      - opnform_storage:/usr/share/nginx/html/storage:ro
+    depends_on:
+      ui:
+        condition: service_started
+      api:
+        condition: service_started
+    # IMPORTANTE: SIN "ports". Coolify enruta el dominio al puerto 80 del contenedor.
+    healthcheck:
+      test: ["CMD-SHELL", "nginx -t && wget -qO- http://localhost/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
