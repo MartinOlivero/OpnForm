@@ -121,22 +121,22 @@ services:
       api:
         condition: service_started
 
-  ingress:
-    image: nginx:1.25-alpine
-    container_name: opnform-ingress
-    environment:
-      NGINX_MAX_BODY_SIZE: 64m
-    volumes:
-      - ./docker:/etc/nginx/templates:ro
-      - opnform_storage:/usr/share/nginx/html/storage:ro
-    depends_on:
-      ui:
-        condition: service_started
-      api:
-        condition: service_started
-    healthcheck:
-      test: ["CMD-SHELL", "nginx -t && wget -qO- http://localhost/ >/dev/null 2>&1 || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+ingress:
+  image: nginx:1.25-alpine
+  environment:
+    NGINX_MAX_BODY_SIZE: 64m
+  volumes:
+    - ./docker:/etc/nginx/templates:ro
+    - opnform_storage:/usr/share/nginx/html/storage:ro
+  depends_on:
+    ui:
+      condition: service_started
+    api:
+      condition: service_started
+  healthcheck:
+    test: ["CMD-SHELL", "nginx -t && wget -qO- http://localhost/login >/dev/null 2>&1 || exit 1"]
+    interval: 30s
+    timeout: 5s
+    retries: 5
+    start_period: 10s
+
