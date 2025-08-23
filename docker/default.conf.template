@@ -1,43 +1,49 @@
-map $request_uri $api_uri {
-    ~^/api(/.*$) $1;
-    default $request_uri;
-}
-
 server {
     listen 80;
     server_name _;
-    root /usr/share/nginx/html/public;
+
+    # Tamaño de archivos (se inyecta por env)
     client_max_body_size ${NGINX_MAX_BODY_SIZE};
 
-    access_log /dev/stdout;
-    error_log /dev/stderr error;
-
-    index index.html index.htm index.php;
-
+    # ----- UI (Next.js en el contenedor ui:3000)
     location / {
         proxy_http_version 1.1;
-        proxy_pass http://ui:3000;
+        proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "Upgrade";
+        proxy_pass http://ui:3000;
     }
 
-    location ~/(api|open|local\/temp|forms\/assets)/ {
-        set $original_uri $uri;
-        try_files $uri $uri/ /index.php$is_args$args;
+    # ----- Laravel API por PHP-FPM (contenedor api:9000)
+    root /usr/share/nginx/html/public;
+
+    # Rutas de API -> index.php de Laravel
+    location /api {
+        try_files $uri /index.php?$query_string;
     }
 
+    # Sirve archivos de /storage directamente
+    location ^~ /storage/ {
+        alias /usr/share/nginx/html/storage/;
+        access_log off;
+        expires 30d;
+        add_header Cache-Control "public";
+    }
+
+    # PHP -> pasa a FPM
     location ~ \.php$ {
-        fastcgi_split_path_info ^(.+\.php)(/.+)$;
-        fastcgi_pass api:9000;
-        fastcgi_index index.php;
         include fastcgi_params;
-        fastcgi_param SCRIPT_FILENAME $document_root/index.php;
-        fastcgi_param REQUEST_URI $api_uri;
+        fastcgi_pass api:9000;
+        fastcgi_param SCRIPT_FILENAME /usr/share/nginx/html/public$fastcgi_script_name;
+        fastcgi_param PATH_INFO $fastcgi_path_info;
+        fastcgi_param HTTP_X_FORWARDED_PROTO $scheme;
+        fastcgi_read_timeout 300;
     }
 
+    # Oculta archivos ocultos (.env, .git, etc.)
     location ~ /\. {
         deny all;
     }
