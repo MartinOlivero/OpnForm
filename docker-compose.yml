@@ -127,7 +127,7 @@ services:
     environment:
       NGINX_MAX_BODY_SIZE: 64m
     volumes:
-      - ./docker:/etc/nginx/conf.d:ro
+      - ./docker:/etc/nginx/templates:ro
       - opnform_storage:/usr/share/nginx/html/storage:ro
     depends_on:
       ui:
@@ -140,4 +140,3 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-
