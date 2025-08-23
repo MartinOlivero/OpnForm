@@ -124,8 +124,10 @@ services:
   ingress:
     image: nginx:1.25-alpine
     container_name: opnform-ingress
+    environment:
+      NGINX_MAX_BODY_SIZE: 64m
     volumes:
-      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./docker:/etc/nginx/conf.d:ro
       - opnform_storage:/usr/share/nginx/html/storage:ro
     depends_on:
       ui:
@@ -138,3 +140,4 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
